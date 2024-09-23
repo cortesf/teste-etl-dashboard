@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Saúde Pública de Goiás</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.2/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+        }
+        .chart-container {
+            height: 400px;
+            margin-bottom: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #chart1 {
+            height: 600px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        .table-container {
+            max-height: 600px;
+            overflow-y: auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #0056b3;
+        }
+        .nav-tabs .nav-link {
+            color: #495057;
+        }
+        .nav-tabs .nav-link.active {
+            color: #0056b3;
+            font-weight: bold;
+        }
+        #loadingIndicator {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+        #errorMessage {
+            display: none;
+            color: red;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <h1 class="mt-4 mb-4">Dashboard de Saúde Pública de Goiás</h1>
+        
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <label for="fileInput" class="form-label">Carregar arquivo CSV:</label>
+                <input type="file" id="fileInput" class="form-control" accept=".csv">
+            </div>
+            <div class="col-md-3">
+                <label for="yearFilter" class="form-label">Filtrar por Ano:</label>
+                <select id="yearFilter" class="form-select">
+                    <option value="">Todos os anos</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="municipioFilter" class="form-label">Filtrar por Município:</label>
+                <select id="municipioFilter" class="form-select">
+                    <option value="">Todos os municípios</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="loadingIndicator" class="spinner-border" role="status">
+            <span class="visually-hidden">Carregando...</span>
+        </div>
+        <div id="errorMessage"></div>
+
+        <ul class="nav nav-tabs" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="charts-tab" data-bs-toggle="tab" data-bs-target="#charts" type="button" role="tab" aria-controls="charts" aria-selected="true">Gráficos</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="table-tab" data-bs-toggle="tab" data-bs-target="#table" type="button" role="tab" aria-controls="table" aria-selected="false">Tabela</button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="myTabContent">
+            <div class="tab-pane fade show active" id="charts" role="tabpanel" aria-labelledby="charts-tab">
+                <div class="row">
+                    <div class="col-md-12">
+                        <div id="chart1" class="chart-container"></div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div id="chart2" class="chart-container"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <div id="chart3" class="chart-container"></div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div id="chart4" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="table" role="tabpanel" aria-labelledby="table-tab">
+                <div class="table-container mt-4">
+                    <table class="table table-striped" id="dataTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Notificação</th>
+                                <th>Data Diagnóstico</th>
+                                <th>Município</th>
+                                <th>UF</th>
+                                <th>Sexo</th>
+                                <th>Faixa Etária</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let allRecords = [];
+        const requiredColumns = ['_id', 'nu_notificacao', 'dt_diag_sintoma', 'dmun_municipiox', 'dmun_uf_sigla', 'sexo', 'faixa_etaria'];
+        let columnMapping = {};
+
+        function createChart(elementId, title, xAxisData, seriesData, type = 'bar') {
+            var chart = echarts.init(document.getElementById(elementId));
+            var option = {
+                title: {
+                    text: title,
+                    left: 'center',
+                    textStyle: {
+                        color: '#333',
+                        fontSize: 16
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'shadow'
+                    }
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '3%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    data: xAxisData,
+                    axisLabel: {
+                        interval: 0,
+                        rotate: 45
+                    }
+                },
+                yAxis: {
+                    type: 'value'
+                },
+                series: [{
+                    name: title,
+                    type: type,
+                    data: seriesData,
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            {offset: 0, color: '#83bff6'},
+                            {offset: 0.5, color: '#188df0'},
+                            {offset: 1, color: '#188df0'}
+                        ])
+                    },
+                    emphasis: {
+                        itemStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                {offset: 0, color: '#2378f7'},
+                                {offset: 0.7, color: '#2378f7'},
+                                {offset: 1, color: '#83bff6'}
+                            ])
+                        }
+                    }
+                }]
+            };
+
+            if (type === 'pie') {
+                option.series[0].radius = '50%';
+                option.series[0].data = xAxisData.map((label, index) => ({
+                    value: seriesData[index],
+                    name: label
+                }));
+                option.series[0].emphasis = {
+                    itemStyle: {
+                        shadowBlur: 10,
+                        shadowOffsetX: 0,
+                        shadowColor: 'rgba(0, 0, 0, 0.5)'
+                    }
+                };
+                option.series[0].label = {
+                    show: true,
+                    formatter: '{b}: {c} ({d}%)'
+                };
+                option.legend = {
+                    orient: 'vertical',
+                    left: 'left'
+                };
+            }
+
+            if (elementId === 'chart1') {
+                option.dataZoom = [
+                    {
+                        type: 'slider',
+                        show: true,
+                        xAxisIndex: [0],
+                        start: 0,
+                        end: 100
+                    }
+                ];
+                option.grid.bottom = '15%';
+            }
+
+            chart.setOption(option);
+        }
+
+        function identifyColumns(headers) {
+            console.log("Cabeçalhos identificados:", headers);
+            columnMapping = {};
+            requiredColumns.forEach(requiredCol => {
+                const matchingHeader = headers.find(header => 
+                    header.toLowerCase().includes(requiredCol.toLowerCase()) ||
+                    requiredCol.toLowerCase().includes(header.toLowerCase())
+                );
+                if (matchingHeader) {
+                    columnMapping[requiredCol] = matchingHeader;
+                }
+            });
+            console.log("Mapeamento de colunas:", columnMapping);
+            return Object.keys(columnMapping).length === requiredColumns.length;
+        }
+
+        function processData(results) {
+            console.log("Iniciando processamento dos dados");
+            console.log("Número de linhas recebidas:", results.data.length);
+            console.log("Cabeçalhos:", results.meta.fields);
+
+            if (results.data.length === 0) {
+                showError("O arquivo CSV parece estar vazio. Por favor, verifique o conteúdo do arquivo.");
+                return;
+            }
+
+            if (!identifyColumns(results.meta.fields)) {
+                showError("Não foi possível identificar todas as colunas necessárias no arquivo CSV.");
+                return;
+            }
+
+            allRecords = results.data.filter(record => {
+                return record[columnMapping._id] && 
+                       record[columnMapping.dt_diag_sintoma] && 
+                       record[columnMapping.dmun_municipiox];
+            }).map(record => {
+                const mappedRecord = {};
+                for (const [key, value] of Object.entries(columnMapping)) {
+                    mappedRecord[key] = record[value];
+                }
+                return mappedRecord;
+            });
+
+            console.log("Número de registros válidos:", allRecords.length);
+            console.log("Primeiros 5 registros válidos:", allRecords.slice(0, 5));
+
+            if (allRecords.length === 0) {
+                showError("Não foram encontrados registros válidos no arquivo CSV. Por favor, verifique o formato e o conteúdo do arquivo.");
+                return;
+            }
+
+            const years = [...new Set(allRecords.map(record => new Date(record.dt_diag_sintoma).getFullYear()))].sort();
+            const yearSelect = document.getElementById('yearFilter');
+            yearSelect.innerHTML = '<option value="">Todos os anos</option>';
+            years.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                yearSelect.appendChild(option);
+            });
+
+            const municipios = [...new Set(allRecords.map(record => record.dmun_municipiox))].sort();
+            const municipioSelect = document.getElementById('municipioFilter');
+            municipioSelect.innerHTML = '<option value="">Todos os municípios</option>';
+            municipios.forEach(municipio => {
+                const option = document.createElement('option');
+                option.value = municipio;
+                option.textContent = municipio;
+                municipioSelect.appendChild(option);
+            });
+
+            updateCharts(allRecords);
+            updateTable(allRecords);
+
+            yearSelect.addEventListener('change', filterAndUpdateData);
+            municipioSelect.addEventListener('change', filterAndUpdateData);
+
+            hideLoading();
+        }
+
+        function filterAndUpdateData() {
+            const selectedYear = document.getElementById('yearFilter').value;
+            const selectedMunicipio = document.getElementById('municipioFilter').value;
+            
+            const filteredRecords = allRecords.filter(record => {
+                const recordYear = new Date(record.dt_diag_sintoma).getFullYear();
+                return (selectedYear === '' || recordYear == selectedYear) &&
+                       (selectedMunicipio === '' || record.dmun_municipiox === selectedMunicipio);
+            });
+
+            console.log(`Registros após filtragem: ${filteredRecords.length}`);
+
+            updateCharts(filteredRecords);
+            updateTable(filteredRecords);
+        }
+
+        function updateCharts(records) {
+            const municipioData = records.reduce((acc, record) => {
+                acc[record.dmun_municipiox] = (acc[record.dmun_municipiox] || 0) + 1;
+                return acc;
+            }, {});
+            const municipios = Object.keys(municipioData).sort((a, b) => municipioData[b] - municipioData[a]);
+            const casosPorMunicipio = municipios.map(m => municipioData[m]);
+            createChart('chart1', 'Total de Casos por Município', municipios, casosPorMunicipio);
+
+            const yearsData = records.reduce((acc, record) => {
+                const year = new Date(record.dt_diag_sintoma).getFullYear();
+                acc[year] = (acc[year] || 0) + 1;
+                return acc;
+            }, {});
+            const years = Object.keys(yearsData).sort();
+            const casesByYear = years.map(year => yearsData[year]);
+            createChart('chart2', 'Evolução dos Casos ao Longo dos Anos', years, casesByYear, 'line');
+
+            const sexData = records.reduce((acc, record) => {
+                acc[record.sexo] = (acc[record.sexo] || 0) + 1;
+                return acc;
+            }, {});
+            createChart('chart3', 'Distribuição de Casos por Sexo', Object.keys(sexData), Object.values(sexData), 'pie');
+
+            const top10Municipios = Object.entries(municipioData)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+            createChart('chart4', 'Top 10 Municípios com Mais Casos', 
+                top10Municipios.map(m => m[0]), 
+                top10Municipios.map(m => m[1]));
+        }
+
+        function updateTable(records) {
+            const tableBody = document.querySelector('#dataTable tbody');
+            tableBody.innerHTML = '';
+
+            console.log(`Atualizando tabela com ${records.length} registros`);
+
+            records.forEach((record, index) => {
+                if (index < 5) {
+                    console.log(`Adicionando registro ${index + 1} à tabela:`, record);
+                }
+                const row = tableBody.insertRow();
+                row.insertCell(0).textContent = record._id;
+                row.insertCell(1).textContent = record.nu_notificacao;
+                row.insertCell(2).textContent = new Date(record.dt_diag_sintoma).toLocaleDateString();
+                row.insertCell(3).textContent = record.dmun_municipiox;
+                row.insertCell(4).textContent = record.dmun_uf_sigla;
+                row.insertCell(5).textContent = record.sexo;
+                row.insertCell(6).textContent = record.faixa_etaria;
+            });
+        }
+
+        function showLoading() {
+            document.getElementById('loadingIndicator').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingIndicator').style.display = 'none';
+        }
+
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+            hideLoading();
+        }
+
+        function hideError() {
+            document.getElementById('errorMessage').style.display = 'none';
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                showLoading();
+                hideError();
+                console.log("Tamanho do arquivo:", file.size, "bytes");
+                if (file.size === 0) {
+                    showError("O arquivo está vazio. Por favor, selecione um arquivo CSV válido.");
+                    return;
+                }
+
+                Papa.parse(file, {
+                    header: true,
+                    dynamicTyping: true,
+                    complete: function(results) {
+                        console.log("Parsing complete");
+                        console.log("Errors:", results.errors);
+                        console.log("Meta:", results.meta);
+                        if (results.data.length > 0) {
+                            console.log("First row:", results.data[0]);
+                            console.log("Number of fields in first row:", Object.keys(results.data[0]).length);
+                            console.log("Fields in first row:", Object.keys(results.data[0]));
+                        }
+                        processData(results);
+                    },
+                    error: function(error) {
+                        console.error('Erro ao analisar o arquivo CSV:', error);
+                        showError('Erro ao analisar o arquivo CSV. Por favor, verifique se o formato está correto.');
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
